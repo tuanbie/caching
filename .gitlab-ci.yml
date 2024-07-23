@@ -1,0 +1,38 @@
+stages:
+  - build and push
+  - deploy
+
+build_and_push_docker_image:
+  stage: build and push
+  image: docker:24.0.5
+  tags:
+    - gitlab-org-docker
+  services:
+    - docker:dind
+  only:
+    - dev
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    # - docker pull $CI_REGISTRY_IMAGE:latest || true
+    - docker build --cache-from $CI_REGISTRY_IMAGE:latest --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA --tag $CI_REGISTRY_IMAGE:latest .
+    # - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    - docker push $CI_REGISTRY_IMAGE:latest
+
+deploy_app:
+  stage: deploy
+  tags:
+    - gitlab-org-docker
+  only:
+    - dev
+  image: alpine:latest
+  before_script:
+    - 'command -v ssh-agent >/dev/null || ( apk update && apk add --no-cache openssh-client)'
+    - eval $(ssh-agent -s)
+    - chmod 400 "$SSH_PRIVATE_KEY"
+    - ssh-add "$SSH_PRIVATE_KEY"
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan "$DEV_SERVER_HOST" >> ~/.ssh/known_hosts
+  script:
+    - ssh -o StrictHostKeyChecking=no $DEV_SERVER_USERNAME@$DEV_SERVER_HOST "cd wing-be && bash deploy.sh"
